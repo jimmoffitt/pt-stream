@@ -50,7 +50,7 @@ Database details
 
 The script writes to a local MySQL database.  The database schema assumed by the script is encapsulated in the ActiveRecord *create_table* statement below.  These details should be updated to match the schema you use to store activities.
 
-'''
+```
 create_table "activities", :force => true do |t|
     t.string   "native_id"
     t.string   "publisher"
@@ -67,7 +67,7 @@ create_table "activities", :force => true do |t|
     t.string   "bio_place"
     t.integer  "stream_id"
   end
-'''
+```
 
 
 
