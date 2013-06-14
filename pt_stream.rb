@@ -150,7 +150,7 @@ class PtStream
     '''
     def processResponseJSON(activity)
 
-        p activity
+        #p activity
 
         data = JSON.parse(activity)
 
