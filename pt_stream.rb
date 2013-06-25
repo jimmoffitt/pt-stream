@@ -23,7 +23,7 @@ end
 
 class PtStream
 
-    attr_accessor :account_name, :user_name, :password_encoded,
+    attr_accessor :stream, :account_name, :user_name, :password_encoded,
                   :publisher, :stream_type, :stream_label,
                   :url,
                   :database_adapter, :db_host, :db_schema, :db_user_name, :db_password,
@@ -80,33 +80,101 @@ class PtStream
         "https://stream.gnip.com:443/accounts/#{@account_name}/publishers/#{@publisher}/streams/#{@stream_type}/#{@stream_label}.json"
     end
 
-    #NativeID is defined as an integer.  This works for Twitter, but not for other publishers who use alphanumerics.
+    #NativeID is defined as a string.  This works for Twitter, but not for other publishers who use alphanumerics.
     #Tweet "id" field has this form: "tag:search.twitter.com,2005:198308769506136064"
     #This function parses out the numeric ID at end.
-    def getNativeID(id)
-        native_id = Integer(id.split(":")[-1])
+    def getNativeID(data)
+
+        id= data["id"]
+
+        if @publisher == "twitter" then
+            native_id = id.split(":")[-1]
+        end
+
+        if @publisher == "tumblr" then
+            native_id = id.split("/")[-2]
+        end
+
+        #These comment/like/vote streams have a blog ID, post ID and a comment ID, so I decided to capture all three.
+        if @publisher.include?("wordpress") then
+            if @stream_type == "post" then
+                native_id = id.split("/")[-3] + "-" + id.split("/")[-1]
+            else
+                native_id = id.split("/")[-5] + "-" + id.split("/")[-3] + "-" + id.split("/")[-1]
+            end
+        end
+
+        #These comment/vote streams have a thread ID and a comment/vote ID, so I decided to capture both.
+        if @publisher == "automattic" or @publisher == "intensedebate" then
+
+            if @stream_type == "vote" then
+                native_id = id.split("/")[-5] + "-" + id.split("/")[-3]
+            else
+                native_id = id.split("/")[-3] + "-" + id.split("/")[-1]
+            end
+        end
+
+        if @publisher == "foursquare" or @publisher == "newsgator" or @publisher == "stocktwits" then
+            native_id = id.split("/")[-1]
+        end
+
+        if @publisher == "getglue" then
+            if data["verb"] != "user_protect" then
+                native_id = id.split("/")[-2] + "-" + id.split("/")[-1]
+            else
+                native_id = id.split("/")[-1]
+            end
+        end
+
+        return native_id
     end
 
     #Twitter uses UTC.
-    def getPostedTime(time_stamp)
-        time_stamp = Time.parse(time_stamp).strftime("%Y-%m-%d %H:%M:%S")
+    def getPostedTime(data)
+
+
+        if @publisher == "stocktwits" then
+            time_stamp = Time.parse(data["object"]["postedTime"]).strftime("%Y-%m-%d %H:%M:%S")
+        else
+
+            time_stamp = data["postedTime"]
+
+            if not time_stamp.nil? then
+                time_stamp = Time.parse(time_stamp).strftime("%Y-%m-%d %H:%M:%S")
+            else #This an activity with our a PostedTime, such as a Tumblr post delete...
+                p "Using Now for timestamp..."
+                time_stamp = Time.now.strftime("%Y-%m-%d %H:%M:%S")
+            end
+        end
+
+        time_stamp
     end
 
     def getGeoCoordinates(activity)
 
-        geo = activity["geo"]
+        #safe defaults... well, sort of...  defaulting to off the west coast of Africa...
         latitude = 0
         longitude = 0
 
-        if not geo.nil? then #We have a "root" geo entry, so go there to get Point location.
-            if geo["type"] == "Point" then
-                latitude = geo["coordinates"][0]
-                longitude = geo["coordinates"][1]
+        if @publisher == "twitter" then
 
-                #We are done here, so return
-                return latitude, longitude
+            geo = activity["geo"]
 
+            if not geo.nil? then #We have a "root" geo entry, so go there to get Point location.
+                if geo["type"] == "Point" then
+                    latitude = geo["coordinates"][0]
+                    longitude = geo["coordinates"][1]
+
+                    #We are done here, so return
+                    return latitude, longitude
+                end
             end
+        end
+
+        if @publisher == "foursquare" then
+            geo = activity["object"]["geo"]["coordinates"]
+            longitude = geo[0]
+            latitude = geo[1]
         end
 
         return latitude, longitude
@@ -143,6 +211,27 @@ class PtStream
 
     end
 
+    #Parse the body/message/post of the activity.
+    def getBody(data)
+
+        if @publisher == "newsgator" or (@publisher.include?("wordpress") and @stream_type == "post") then
+            body = data["object"]["content"]
+        elsif @publisher == "getglue" then
+             verb = data["verb"]
+             if verb == "share" then
+                 body = data["body"]
+             elsif verb == "post" or verb == "like" or verb == "follow" or verb == "receive" or verb == "checkin" or verb == "reject" or "user_protect" then
+                 body = data["displayName"]
+             elsif verb == "vote" then
+                 body = data["displayName"]
+             end
+        else
+            body = data["body"]
+        end
+
+        body
+    end
+
     '''
     Parses normalized Activity Stream JSON.
     Parsing details here are driven by the current database schema used to store activities.
@@ -150,18 +239,36 @@ class PtStream
     '''
     def processResponseJSON(activity)
 
-        #p activity
+        p activity
 
-        data = JSON.parse(activity)
+        if activity.include?("delete") then   #TODO: Need to test on VERB, not content.
+            activity.gsub!('\"','"')   #Testing and tripping over Tumblr delete activities prompted the special
+            #handling of the activity JSON format.
+        end
 
-        #Parse from the activity the "atomic" elements we are inserting into db fields.
-        posted_at = getPostedTime(data["postedTime"])
-        native_id = getNativeID(data["id"])
-        body = data["body"]
+        begin
+            data = JSON.parse(activity)
+        rescue => e
+            p e.message
+            p e.backtrace
+            return #Could not parse the activity, move on to next... Would want to log the offending activity...
+        end
+
+        #It is wise to store the entire activity payload, in case you need to parse it later...
         content = activity
 
-        #Parse gnip:matching_rules and extract one or more rule values/tags
-        rule_values, rule_tags = getMatchingRules(data["gnip"]["matching_rules"])
+        #Parse from the activity the "atomic" elements we are inserting into db fields.
+        posted_at = getPostedTime(data)
+        native_id = getNativeID(data)
+        body = getBody(data)
+
+        #Only PowerTrack ("track") streams have the rules (and tags) to parse...
+        if @stream_type == "track" then
+            #Parse gnip:matching_rules and extract one or more rule values/tags
+            rule_values, rule_tags = getMatchingRules(data["gnip"]["matching_rules"])
+        else
+            rule_values = "firehose"
+        end
 
         #Parse the activity and extract any geo available data.
         latitude, longitude = getGeoCoordinates(data)
@@ -175,19 +282,29 @@ class PtStream
         bio_place = ""
         stream_id = 1
 
-        Activity.create(:native_id => native_id,
-                        :publisher => @publisher,
-                        :content => content,
-                        :body => body,
-                        :rule_value => rule_values,
-                        :rule_tag => rule_tags,
-                        :posted_at => posted_at,
-                        :longitude => longitude,
-                        :latitude => latitude,
-                        :place => place,
-                        :bio_place => bio_place,
-                        :stream_id => stream_id
-        )
+        begin
+
+            p native_id + " --> " + body
+
+            Activity.create(:native_id => native_id,
+                            :publisher => @publisher,
+                            :content => content,
+                            :body => body,
+                            :rule_value => rule_values,
+                            :rule_tag => rule_tags,
+                            :posted_at => posted_at,
+                            :longitude => longitude,
+                            :latitude => latitude,
+                            :place => place,
+                            :bio_place => bio_place,
+                            :stream_id => stream_id
+            )
+        rescue => e
+            p e.message
+            p e.backtrace
+        end
+
+        p "Activity added to database..."
 
     end
 
@@ -203,6 +320,7 @@ class PtStream
             end
         rescue => e
             p "Error occurred: #{e.message}"
+            consumeStream(@stream)
         end
     end
 
@@ -223,7 +341,7 @@ class PtStream
 
         threads = []  #Thread pool.
 
-        stream = PowertrackStream.new(@url,@user_name, @password)
+        @stream = PowertrackStream.new(@url,@user_name, @password)
 
         t = Thread.new {Thread.pass; consumeStream(stream)}
 
@@ -260,8 +378,6 @@ class PtStream
         end
 
     end
-
-
 
 end
 
