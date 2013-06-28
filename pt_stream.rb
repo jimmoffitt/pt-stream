@@ -126,6 +126,11 @@ class PtStream
             end
         end
 
+        if @publisher == "estimize" then
+            native_id = id.split("/")[-1]
+        end
+
+
         return native_id
     end
 
@@ -220,9 +225,7 @@ class PtStream
              verb = data["verb"]
              if verb == "share" then
                  body = data["body"]
-             elsif verb == "post" or verb == "like" or verb == "follow" or verb == "receive" or verb == "checkin" or verb == "reject" or "user_protect" then
-                 body = data["displayName"]
-             elsif verb == "vote" then
+             else #verb == "vote" or verb == "post" or verb == "like" or verb == "dislike" or verb == "follow" or verb == "add" or verb == "receive" or verb == "checkin" or verb == "reject" or "user_protect" then
                  body = data["displayName"]
              end
         else
