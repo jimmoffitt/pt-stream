@@ -1,7 +1,7 @@
 Introduction
 ============
 
-This is a Ruby script written to stream data from a PowerTrack stream.  Retrieved data are written to a local database.  Database writes are based on ActiveRecord (see below for database schema details).
+This is a Ruby script written to stream data from a PowerTrack stream.  Retrieved data are written to standard out or a local MySQL database.  Database writes are based on ActiveRecord (see below for database schema details).
 
 HTTP streaming is based on the gnip-stream project at https://github.com/rweald/gnip-stream.
 
