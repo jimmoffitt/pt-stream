@@ -10,12 +10,17 @@ stream:
   publisher: twitter
   type: track
   label: prod
+  output: stdout #Either write to stdout or write to db.
+
+logging:
+  log_level: debug  #The standard debug, info, error, warn or fatal.
+  log_file: ./pt-stream.log
 
 #Database details.
 database:
-  adapter: mysql
+  adapter: mysql2
   host: 127.0.0.1
   #Note: currently all PowerTrack example clients share a common database schema.
-  schema: data-manager_development
+  schema: my_database
   user_name: root
   password:
