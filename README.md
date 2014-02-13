@@ -8,6 +8,9 @@ HTTP streaming is based on the gnip-stream project at https://github.com/rweald/
 The target PowerTrack stream is configured in a configuration file. If you want to use this script to stream from more than one stream at a time, in theory, multiple instances of this code could be ran (with different configuration files passed in).  
 
 Once the script is started, it creates a streaming connection to the configured data feed. 
+
+
+Note: Need to use em-http-request version 1.0.3.  Current version serves up strangely concated activities where two activities are randomly conjoined
  
 
 Usage
