@@ -10,7 +10,7 @@ The target PowerTrack stream is configured in a configuration file. If you want 
 Once the script is started, it creates a streaming connection to the configured data feed. 
 
 
-Note: Need to use em-http-request version 1.0.3.  Current version serves up strangely concated activities where two activities are randomly conjoined
+Note: Need to use em-http-request version 1.0.3.  Current version serves up strangely concatenated activities where two activities are randomly conjoined
  
 
 Usage
